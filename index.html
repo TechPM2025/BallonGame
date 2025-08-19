@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"
+  />
+  <title>Balloon Blast Party 🎈</title>
+  <style>
+    :root{
+      --ui-bg:#87CEEB;          /* sky */
+      --btn-shadow:0 6px 16px rgba(0,0,0,.25);
+      --card-shadow:0 10px 24px rgba(0,0,0,.35);
+      --radius:18px;
+      --font:"Comic Sans MS", "Baloo 2", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    html,body{height:100%;margin:0;background:var(--ui-bg);font-family:var(--font);touch-action:manipulation;}
+
+    /* Layout */
+    #gameWrap{position:relative; width:100vw; height:100vh; overflow:hidden;}
+    #gameCanvas{position:absolute; inset:0; width:100vw; height:100vh; display:block; background:linear-gradient(#8ed2ff,#bfe9ff); transition: background .5s ease;}
+
+    /* HUD */
+    #hud{
+      position:fixed; top:env(safe-area-inset-top,8px); left:50%; transform:translateX(-50%);
+      display:flex; gap:2vw; align-items:center; padding:.6rem 1rem; border-radius:999px;
+      background:rgba(0,0,0,.25); color:#fff; font-weight:700; font-size:3.5vw; line-height:1;
+      backdrop-filter: blur(8px); box-shadow:var(--btn-shadow); z-index: 5;
+    }
+    #hud span{white-space:nowrap}
+    @media(min-width:520px){ #hud{font-size:14px;} }
+
+    /* Controls */
+    #controls{
+      position:fixed; bottom:calc(env(safe-area-inset-bottom,8px) + 10px); left:50%;
+      transform:translateX(-50%); display:flex; gap:3vw; align-items:center; z-index:5;
+    }
+    .btn{
+      width:12vw; height:12vw; max-width:60px; max-height:60px; min-width:44px; min-height:44px;
+      border:none; border-radius:50%; color:#fff; font-size:6vw; max-font-size:26px;
+      display:grid; place-items:center; box-shadow:var(--btn-shadow); cursor:pointer; outline:none;
+      transition: transform .1s, opacity .1s;
+    }
+    .start{background:#4caf50} .stop{background:#f44336} .switch{background:#2196f3}
+    .again{background:#607d8b; display:none} .leaders{background:#ff9800}
+    .mute{background:#ffb300} .help{background:#9c27b0} .palette{background:#00bcd4}
+    .btn:active{transform:translateY(1px); opacity:.9}
+
+    /* Settings Button */
+    #settingsBtn {
+      position: fixed; top: calc(env(safe-area-inset-top,8px) + 10px); right: 10px;
+      width: 44px; height: 44px; font-size: 24px; background: #795548; z-index: 5;
+    }
+
+    /* Popups (Leaderboard & Settings) */
+    .popup{
+      position:fixed; inset:0; display:none; place-items:center; z-index:10;
+      background:rgba(0,0,0,.35);
+    }
+    .card{
+      width:86vw; max-width:400px; background:#fff; border-radius:22px; box-shadow:var(--card-shadow);
+      padding:16px 16px 12px; border:4px solid #4a4a4a;
+    }
+    .card h2{ margin:4px 0 10px; font-size:22px; display:flex; align-items:center; gap:8px; justify-content: center;}
+    .close{
+      margin:12px auto 2px; display:block; padding:10px 18px; border:none; border-radius:999px;
+      background:#ff595e; color:#fff; font-size:16px; box-shadow:var(--btn-shadow); cursor:pointer;
+    }
+
+    /* Leaderboard Table Improvements */
+    .card table{ width:100%; border-collapse:collapse; font-weight:700; }
+    .card th, .card td{ padding:12px 8px; border-bottom:1px solid #e6e6e6; text-align:left; }
+    .card tbody tr:nth-child(odd){ background-color: #f8f8f8; }
+    .card tbody tr:first-child { font-weight: 900; background-color: #fff3cd; } /* Highlight top scorer */
+    .card tbody tr:first-child td:first-child::before { content: '👑 '; }
+
+    /* Settings Form */
+    .settings-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px 10px; align-items: center; margin-top: 16px; }
+    .settings-grid label { font-weight: 700; }
+    .settings-grid select, .settings-grid input {
+        padding: 6px; border-radius: 8px; border: 1px solid #ccc; font-family: var(--font);
+    }
+    .settings-grid input[type=range] { width: 100%; }
+    #missesValue { font-weight: bold; }
+
+    /* Tooltips */
+    .btn[data-tip]{position:relative}
+    .btn[data-tip]::after{
+      content:attr(data-tip); position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+      background:#000; color:#fff; padding:4px 8px; border-radius:8px; font-size:12px; white-space:nowrap;
+      opacity:0; pointer-events:none; transition:.2s; box-shadow:var(--btn-shadow);
+    }
+    .btn:hover::after{opacity:1}
+  </style>
+</head>
+<body>
+  <div id="gameWrap">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="hud">
+      <span id="scoreTxt">🎯 Score: 0</span>
+      <span id="bestTxt">🏆 Best: 0</span>
+      <span id="missTxt">❌ Missed: 0/5</span>
+      <span id="whoTxt">👤 Player: —</span>
+    </div>
+
+    <div id="controls">
+      <button id="startBtn"   class="btn start"   data-tip="Start">▶</button>
+      <button id="stopBtn"    class="btn stop"    data-tip="Stop" style="display:none;">⏹</button>
+      <button id="againBtn"   class="btn again"   data-tip="Play Again">🔁</button>
+      <button id="switchBtn"  class="btn switch"  data-tip="Switch Player">🔄</button>
+      <button id="leadersBtn" class="btn leaders" data-tip="Leaders">🏆</button>
+      <button id="paletteBtn" class="btn palette" data-tip="Change Theme">🎨</button>
+      <button id="muteBtn"    class="btn mute"    data-tip="Mute / Unmute">🔊</button>
+      <button id="helpBtn"    class="btn help"    data-tip="Help">❓</button>
+    </div>
+
+    <button id="settingsBtn" class="btn" data-tip="Settings">⚙️</button>
+
+    <div id="leaderPopup" class="popup">
+      <div class="card">
+        <h2>🏆 Leaderboard 🏆</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Best Score</th><th>Date</th></tr></thead>
+          <tbody id="leaderBody"></tbody>
+        </table>
+        <button id="closeLeaders" class="close">Close</button>
+      </div>
+    </div>
+
+    <div id="settingsPopup" class="popup">
+        <div class="card">
+            <h2>⚙️ Game Settings ⚙️</h2>
+            <div class="settings-grid">
+                <label for="speedSelect">🎯 Balloon Speed:</label>
+                <select id="speedSelect">
+                    <option value="slow">Slow</option>
+                    <option value="normal">Normal</option>
+                    <option value="fast">Fast</option>
+                </select>
+
+                <label for="difficultySelect">🎮 Difficulty:</label>
+                <select id="difficultySelect">
+                    <option value="easy">Easy</option>
+                    <option value="medium">Medium</option>
+                    <option value="hard">Hard</option>
+                </select>
+
+                <label for="missesRange">🎈 Misses Allowed:</label>
+                <span><input type="range" id="missesRange" min="3" max="10" value="5"><span id="missesValue">5</span></span>
+            </div>
+            <button id="closeSettings" class="close">Save & Close</button>
+        </div>
+    </div>
+
+  </div>
+
+<script>
+/* ========= Responsive Canvas ========= */
+const canvas = document.getElementById("gameCanvas");
+// THE FIX IS HERE: alpha is now `true` to allow transparency
+const ctx = canvas.getContext("2d",{ alpha: true, desynchronized:true });
+function resizeCanvas(){
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const w = Math.floor(window.innerWidth);
+  const h = Math.floor(window.innerHeight);
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+/* ========= Game State & Settings ========= */
+let balloons = [];
+let score = 0;
+let bestScore = 0;
+let playerName = "";
+let gameTimer = null, spawnTimer = null;
+let isPlaying = false;
+let missed = 0;
+let MAX_MISSES = 5; // Will be updated from settings
+let isMuted = false;
+
+let settings = {
+    speed: 'normal',      // slow, normal, fast
+    difficulty: 'medium', // easy, medium, hard
+    maxMisses: 5
+};
+
+const themes = [
+    'linear-gradient(#8ed2ff,#bfe9ff)', /* Sky Blue */
+    'linear-gradient(#90ee90,#c1ffc1)', /* Light Green */
+    'linear-gradient(#ffb6c1,#ffe4e1)', /* Pink */
+    'linear-gradient(#dda0dd,#e6e6fa)', /* Purple */
+    'linear-gradient(#ffcc80,#fff3e0)'  /* Orange */
+];
+let currentTheme = 0;
+
+/* ========= UI Elements ========= */
+const scoreTxt = document.getElementById("scoreTxt");
+const bestTxt  = document.getElementById("bestTxt");
+const missTxt  = document.getElementById("missTxt");
+const whoTxt   = document.getElementById("whoTxt");
+
+const startBtn   = document.getElementById("startBtn");
+const stopBtn    = document.getElementById("stopBtn");
+const againBtn   = document.getElementById("againBtn");
+const switchBtn  = document.getElementById("switchBtn");
+const leadersBtn = document.getElementById("leadersBtn");
+const paletteBtn = document.getElementById("paletteBtn");
+const muteBtn    = document.getElementById("muteBtn");
+const helpBtn    = document.getElementById("helpBtn");
+const settingsBtn= document.getElementById("settingsBtn");
+
+const leaderPopup   = document.getElementById("leaderPopup");
+const leaderBody    = document.getElementById("leaderBody");
+const closeLeaders  = document.getElementById("closeLeaders");
+
+const settingsPopup  = document.getElementById("settingsPopup");
+const closeSettings  = document.getElementById("closeSettings");
+const speedSelect    = document.getElementById("speedSelect");
+const difficultySelect = document.getElementById("difficultySelect");
+const missesRange    = document.getElementById("missesRange");
+const missesValue    = document.getElementById("missesValue");
+
+/* ========= Sound Engine (WebAudio) ========= */
+const AC = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AC();
+let bgNode = null;
+let bgTimer = null; // Timer for the background music loop
+
+function playPop(){ if(isMuted) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type="triangle"; o.frequency.setValueAtTime(180, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(60, audioCtx.currentTime+0.08);
+  g.gain.setValueAtTime(0.7, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.1);
+  o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+0.11);
+}
+function playBling(){ if(isMuted) return;
+  const g = audioCtx.createGain(); g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(0.6, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.35);
+  [660,990,1320].forEach((f,i)=>{
+    const o = audioCtx.createOscillator(); o.type="sine";
+    o.frequency.setValueAtTime(f, audioCtx.currentTime + i*0.04);
+    o.connect(g); o.start(audioCtx.currentTime + i*0.04);
+    o.stop(audioCtx.currentTime + i*0.04 + 0.18);
+  });
+}
+function playFail(){ if(isMuted) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type="sawtooth"; o.frequency.setValueAtTime(400, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime+0.35);
+  g.gain.setValueAtTime(0.6, audioCtx.currentTime);
+  g.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime+0.35);
+  const lfo = audioCtx.createOscillator(); lfo.frequency.value=7;
+  const lfoGain = audioCtx.createGain(); lfoGain.gain.value=50;
+  lfo.connect(lfoGain).connect(o.frequency);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(); lfo.start(); o.stop(audioCtx.currentTime+0.36); lfo.stop(audioCtx.currentTime+0.36);
+}
+function startBG(){
+  if(isMuted) return;
+  stopBG();
+  const tempo=120; const beat=60/tempo;
+  bgNode = audioCtx.createGain(); bgNode.gain.value=0.2; bgNode.connect(audioCtx.destination);
+  const notes=[523,587,659,698,659,587,523,392];
+  for(let i=0;i<64;i++){
+    const t = audioCtx.currentTime + i*beat*0.5;
+    const o = audioCtx.createOscillator(); o.type="square";
+    o.frequency.value = notes[i%notes.length];
+    const g = audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.15,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+beat*0.45);
+    o.connect(g).connect(bgNode); o.start(t); o.stop(t+beat*0.5);
+  }
+  bgTimer = setTimeout(startBG, beat*1000*32); // Store timer ID
+}
+function stopBG(){
+  if (bgTimer) clearTimeout(bgTimer); // Clear the scheduled next loop
+  if(bgNode){ bgNode.disconnect(); bgNode=null; }
+}
+
+/* ========= Settings Management ========= */
+function saveSettings() {
+    localStorage.setItem('balloon_settings', JSON.stringify(settings));
+}
+function loadSettings() {
+    const saved = localStorage.getItem('balloon_settings');
+    if (saved) {
+        settings = JSON.parse(saved);
+    }
+    // Apply loaded settings to the game and UI
+    MAX_MISSES = settings.maxMisses;
+    speedSelect.value = settings.speed;
+    difficultySelect.value = settings.difficulty;
+    missesRange.value = settings.maxMisses;
+    missesValue.textContent = settings.maxMisses;
+    updateHUD();
+}
+
+/* ========= Helpers ========= */
+function fmtName(n){ return n? (n[0].toUpperCase()+n.slice(1).toLowerCase()) : "Player"; }
+function getRecord(name){
+  return JSON.parse(localStorage.getItem("balloon_"+name) || '{"best":0,"date":""}');
+}
+function setRecord(name, rec){
+  localStorage.setItem("balloon_"+name, JSON.stringify(rec));
+}
+function updateHUD(){
+  scoreTxt.textContent = `🎯 Score: ${score}`;
+  bestTxt.textContent  = `🏆 Best: ${bestScore}`;
+  missTxt.textContent  = `❌ Missed: ${missed}/${MAX_MISSES}`;
+  whoTxt.textContent   = `👤 Player: ${playerName||"—"}`;
+}
+
+/* ========= Player Init (with validation) ========= */
+function ensurePlayer(){
+  if(playerName) return;
+  let name = "";
+  while (!name || name.trim() === "") {
+    name = prompt("Please enter your name to play:");
+    if (name === null) name = "Player"; // Handle cancel button
+  }
+  name = fmtName(name.trim() || "Player");
+  playerName = name;
+  const rec = getRecord(playerName);
+  bestScore = rec.best || 0;
+  updateHUD();
+}
+
+/* ========= Game Control ========= */
+function startGame(){
+  ensurePlayer();
+  if(isPlaying) return;
+  score=0; missed=0; balloons.length=0; isPlaying=true;
+  startBtn.style.display="none"; againBtn.style.display="none"; stopBtn.style.display="grid";
+  // Determine spawn rate from settings
+  let spawnRate = 900;
+  if(settings.difficulty === 'easy') spawnRate = 1200;
+  else if (settings.difficulty === 'hard') spawnRate = 650;
+  spawnTimer = setInterval(spawnBalloon, spawnRate);
+  gameTimer  = setInterval(loop, 16);
+  startBG();
+  updateHUD();
+}
+function endGame(msg="Game Over!"){
+  clearInterval(spawnTimer); clearInterval(gameTimer);
+  isPlaying=false; stopBtn.style.display="none"; startBtn.style.display="grid"; againBtn.style.display="grid";
+  stopBG(); // This will now correctly stop the music loop
+  if(score>bestScore){
+    bestScore = score;
+    setRecord(playerName, { best:bestScore, date:new Date().toLocaleDateString() });
+    alert(`🎉 New High Score ${playerName}! 🏆 ${bestScore}`);
+  }else{
+    alert(`${msg} ${playerName}! Final Score: ${score}`);
+  }
+  updateHUD();
+}
+function switchPlayer(){
+  if(isPlaying) endGame("Switching Player...");
+  let n = "";
+  while (!n || n.trim() === "") {
+      n = prompt("Enter new player's name:");
+      if (n === null) return; // User cancelled
+  }
+  playerName = fmtName(n.trim() || "Player");
+  const rec = getRecord(playerName);
+  bestScore = rec.best || 0;
+  score = 0;
+  missed = 0;
+  updateHUD();
+}
+
+/* ========= Balloons ========= */
+function spawnBalloon(){
+  const x = Math.random() * (canvas.clientWidth - 60) + 30;
+  const r = Math.random();
+  let type="normal", points=1, color="red";
+  if(r<0.10){ type="gold"; points=5; color="gold"; }
+  else if(r<0.20){ type="black"; points=-3; color="black"; }
+  else{
+    const colors=["red","yellow","green","blue","deeppink","purple"];
+    color = colors[(Math.random()*colors.length)|0];
+  }
+  balloons.push({x, y: canvas.clientHeight+40, r: 26, type, color, points});
+}
+function drawBalloon(b){
+  const y = b.y, x = b.x, r = b.r;
+  const grad = ctx.createRadialGradient(x-r*0.3,y-r*0.6,2, x,y,r);
+  if(b.type==="gold"){ grad.addColorStop(0,"#fff7b1"); grad.addColorStop(1,"#e2b400"); }
+  else if(b.type==="black"){ grad.addColorStop(0,"#666"); grad.addColorStop(1,"#111"); }
+  else{ grad.addColorStop(0,"#fff"); grad.addColorStop(1,b.color); }
+  ctx.beginPath(); ctx.ellipse(x,y,r*0.8,r,0,0,Math.PI*2); ctx.fillStyle=grad; ctx.fill(); ctx.closePath();
+  ctx.beginPath(); ctx.moveTo(x-5,y+r); ctx.lineTo(x+5,y+r); ctx.lineTo(x,y+r+6);
+  ctx.fillStyle="#222"; ctx.fill(); ctx.closePath();
+  ctx.beginPath(); ctx.moveTo(x,y+r+6); ctx.lineTo(x,y+r+24); ctx.strokeStyle="#222"; ctx.stroke(); ctx.closePath();
+}
+
+function loop(){
+  ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+  let baseSpeed = 2; // Determine base speed from settings
+  if(settings.speed === 'slow') baseSpeed = 1.5;
+  else if (settings.speed === 'fast') baseSpeed = 3;
+
+  for(let i=balloons.length-1;i>=0;i--){
+    const b = balloons[i];
+    b.y -= baseSpeed + Math.min(6, score/25);  // Speed increases with score
+    drawBalloon(b);
+    if(b.y + b.r < 0){
+      if(b.type !== "black") { // Don't penalize for missing black balloons
+          missed++;
+          updateHUD();
+          if(missed >= MAX_MISSES){ endGame(`❌ Too many missed balloons!`); }
+      }
+      balloons.splice(i,1);
+    }
+  }
+}
+
+/* ========= Interaction ========= */
+canvas.addEventListener("pointerdown", (e)=>{
+  if(!isPlaying) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  for(let i=balloons.length-1;i>=0;i--){
+    const b = balloons[i];
+    const dx = x - b.x, dy = y - b.y;
+    if(Math.hypot(dx,dy) < b.r * 1.2){ // Slightly larger hit area
+      score += b.points; if(score<0) score=0;
+      if(b.type==="gold") playBling();
+      else if(b.type==="black") playFail();
+      else playPop();
+      balloons.splice(i,1);
+      updateHUD();
+      break;
+    }
+  }
+});
+
+/* ========= Leaderboard ========= */
+function showLeaders(){
+  const players=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(k && k.startsWith("balloon_") && !k.startsWith("balloon_settings")){
+      const name = k.replace("balloon_","");
+      const rec = JSON.parse(localStorage.getItem(k) || "{}");
+      players.push({name, score: rec.best||0, date: rec.date || "-"});
+    }
+  }
+  players.sort((a,b)=>b.score-a.score);
+  const top5 = players.slice(0,5);
+  leaderBody.innerHTML = top5.map(p=>(
+    `<tr><td>${p.name}</td><td>${p.score}</td><td>${p.date}</td></tr>`
+  )).join("") || `<tr><td colspan="3" style="text-align:center;">No players yet</td></tr>`;
+  leaderPopup.style.display="grid";
+}
+closeLeaders.addEventListener("click", ()=> leaderPopup.style.display="none");
+
+/* ========= Buttons & UI Event Listeners ========= */
+startBtn.addEventListener("click", ()=> startGame());
+stopBtn.addEventListener("click",  ()=> endGame("Game Stopped!"));
+againBtn.addEventListener("click", ()=> startGame());
+switchBtn.addEventListener("click",()=> switchPlayer());
+leadersBtn.addEventListener("click",()=> showLeaders());
+helpBtn.addEventListener("click",  ()=> alert("Pop the colored balloons to score points. Avoid black ones! Don't let too many get away. Have fun! 🎈\n\nContact: Amit Dixit"));
+muteBtn.addEventListener("click",  ()=>{
+  isMuted = !isMuted;
+  muteBtn.textContent = isMuted ? "🔇" : "🔊";
+  if(isMuted) stopBG(); else if(isPlaying) startBG();
+});
+paletteBtn.addEventListener("click", ()=>{
+    currentTheme = (currentTheme + 1) % themes.length;
+    canvas.style.background = themes[currentTheme];
+});
+
+// Settings Panel Listeners
+settingsBtn.addEventListener('click', () => settingsPopup.style.display = 'grid');
+closeSettings.addEventListener('click', () => settingsPopup.style.display = 'none');
+speedSelect.addEventListener('change', (e) => {
+    settings.speed = e.target.value;
+    saveSettings();
+});
+difficultySelect.addEventListener('change', (e) => {
+    settings.difficulty = e.target.value;
+    saveSettings();
+    if(isPlaying) {
+        alert("Difficulty will change on next game.");
+    }
+});
+missesRange.addEventListener('input', (e) => {
+    settings.maxMisses = parseInt(e.target.value, 10);
+    MAX_MISSES = settings.maxMisses;
+    missesValue.textContent = MAX_MISSES;
+    updateHUD();
+    saveSettings();
+});
+
+/* ========= Initial Load ========= */
+loadSettings();
+canvas.style.background = themes[currentTheme]; // Set default background on load
+updateHUD();
+
+</script>
+</body>
+</html>
